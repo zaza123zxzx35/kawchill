@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +27,7 @@ from src.labels import (
 )
 from src.guide_rules import apply_choice_filters, evidence_review
 from src.parsing import competition_text, format_thai_stamp
+from src.pdf_ingest import PDF_DIR, list_pdf_documents, list_pdf_review_items, pdf_overview, sync_local_pdfs
 from src.scenarios import applicant_increase, factor_outlook, future_calls, reach_rank, staffing_change, target_disadvantage
 from src.scoring import evidence_notice, formula_text, normalize_weights, score_areas
 from src.staffing import staffing_metrics
@@ -71,8 +73,8 @@ def main() -> None:
     scores = score_areas(view["areas"], view["focus_year"], weights) if view["focus_year"] else []
     _decision(view, scores)
     _metrics(view, scores)
-    compare, rank, strategy, picked, history, scenario, monitor, sources = st.tabs(
-        ["เปรียบเทียบเขต", "อันดับและเหตุผล", "กลยุทธ์เลือกเขต", "เทียบเขตที่เลือก", "ประวัติเรียกบรรจุ", "จำลองสถานการณ์", "ติดตามแหล่งข้อมูล", "แหล่งข้อมูล"]
+    compare, rank, strategy, picked, history, scenario, monitor, sources, pdfs = st.tabs(
+        ["เปรียบเทียบเขต", "อันดับและเหตุผล", "กลยุทธ์เลือกเขต", "เทียบเขตที่เลือก", "ประวัติเรียกบรรจุ", "จำลองสถานการณ์", "ติดตามแหล่งข้อมูล", "แหล่งข้อมูล", "PDF หลักฐาน"]
     )
     with compare:
         _compare_tab(view, scores)
@@ -90,12 +92,16 @@ def main() -> None:
         _monitor_tab(view)
     with sources:
         _source_tab(view)
+    with pdfs:
+        _pdf_tab()
 
 
 def _boot() -> None:
     if st.session_state.get("booted"):
         return
     st.session_state["booted"] = True
+    with st.spinner("กำลังตรวจสอบและนำเข้า PDF ใน data/source_pdfs ..."):
+        st.session_state["pdf_import_result"] = sync_local_pdfs(DB, PDF_DIR)
     if should_refresh(DB):
         with st.spinner("กำลังดึงข้อมูลจากแหล่งต้นทาง..."):
             st.session_state["refresh_result"] = refresh_all(DB)
@@ -124,6 +130,82 @@ def _header(snapshot: dict) -> None:
             st.rerun()
         st.link_button("เปิดหน้ารวบรวมต้นทาง", REPORT_URL, width="stretch")
         st.caption("หน้ารวบรวมไม่ใช่ประกาศทางการของเขต ใช้ปุ่มเว็บเขตในตารางเมื่อต้องการเปิดต้นสังกัด")
+
+
+def _pdf_tab() -> None:
+    st.subheader("คลัง PDF หลักฐานในเครื่อง")
+    st.caption("ไฟล์ใน data/source_pdfs จะถูกตรวจ hash และนำเข้าอัตโนมัติเมื่อเปิดเว็บ ไฟล์เดิมจะไม่ถูกนำเข้าซ้ำและไม่เขียนทับข้อมูลเดิม")
+    overview = pdf_overview(DB)
+    cards = st.columns(4)
+    cards[0].metric("เอกสารที่นำเข้า", overview["documents"])
+    cards[1].metric("หน้าที่เก็บข้อความ", overview["pages"])
+    cards[2].metric("หลักฐานดิบ", overview["extractions"])
+    cards[3].metric("รายการรอตรวจ", overview["reviews"])
+    if st.button("ตรวจ PDF ใหม่อีกครั้ง", key="rescan_pdfs"):
+        with st.spinner("กำลังตรวจ PDF ..."):
+            st.session_state["pdf_import_result"] = sync_local_pdfs(DB, PDF_DIR)
+        st.rerun()
+    st.markdown(f"**โฟลเดอร์ PDF:** `{Path(PDF_DIR).as_posix()}`")
+    documents = list_pdf_documents(DB)
+    if documents:
+        rows = []
+        for item in documents:
+            rows.append(
+                {
+                    "ไฟล์": item["filename"],
+                    "ประเภท": item["document_type"],
+                    "หน้า": item["page_count"],
+                    "ข้อความ": item["extracted_chars"],
+                    "รายการรอตรวจ": item["review_count"],
+                    "สถานะ": item["status"],
+                    "SHA-256": item["sha256"][:16] + "...",
+                    "นำเข้าเมื่อ": format_thai_stamp(item["imported_at"]),
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    else:
+        st.warning("ยังไม่พบ PDF ในโฟลเดอร์ data/source_pdfs")
+    reviews = list_pdf_review_items(DB)
+    if reviews:
+        st.subheader("รายการที่ต้องตรวจสอบก่อนนำไปใช้คำนวณ")
+        st.warning("ระบบเก็บหลักฐานไว้แล้ว แต่ยังไม่เดาตัวเลขหรือเขตจากแถวที่อ่านซับซ้อน")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "ไฟล์": item["filename"],
+                        "หน้า": item["page_number"] or "ทั้งไฟล์",
+                        "ประเภท": item["kind"],
+                        "รายละเอียด": item["message"],
+                        "หลักฐาน": item["evidence"],
+                    }
+                    for item in reviews
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    result = st.session_state.get("pdf_import_result") or []
+    if result:
+        with st.expander("ผลการตรวจรอบล่าสุด"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "ไฟล์": item.filename,
+                            "ประเภท": item.document_type,
+                            "สถานะ": item.status,
+                            "หน้า": item.pages,
+                            "อักขระ": item.extracted_chars,
+                            "รายการรอตรวจ": item.review_items,
+                            "ข้อความ": item.message,
+                        }
+                        for item in result
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
 
 
 def _filters(snapshot: dict):
