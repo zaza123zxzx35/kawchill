@@ -1,0 +1,7 @@
+streamlit>=1.39
+beautifulsoup4>=4.12
+truststore>=0.10
+openpyxl>=3.1
+pandas>=2.2
+pytest>=8.0
+pypdf>=5.0
