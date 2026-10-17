@@ -78,6 +78,55 @@ def multi_zone_provinces(areas: list[AreaInput]) -> set[str]:
     return {name for name, zones in counts.items() if len(zones) >= 2}
 
 
+def is_primary_zone_one(area: AreaInput) -> bool:
+    """Return whether an area is an S.P.P. district 1.
+
+    The guide warns about transfer competition in some district-1 areas, but
+    it does not justify removing every district 1 from the ranking.  This
+    helper is therefore used only by an explicit user filter, never as an
+    automatic score penalty.
+    """
+    return area.area_name.startswith("สพป.") and zone_of(area.area_name) == 1
+
+
+def valid_call_ratios(area: AreaInput) -> list[float]:
+    """Return only same-year listed/appointed ratios with valid arithmetic."""
+    ratios = []
+    for stat in area.years.values():
+        if stat.listed_count is None or stat.appointed_count is None:
+            continue
+        if stat.listed_count <= 0 or not 0 <= stat.appointed_count <= stat.listed_count:
+            continue
+        ratios.append(stat.appointed_count / stat.listed_count)
+    return ratios
+
+
+def has_low_call_history(area: AreaInput, threshold: float = 0.5) -> bool:
+    """Flag missing or weak history for the optional conservative filter.
+
+    "Low history" means no valid year, or an average call/listed ratio below
+    50%.  This is a display filter only; it does not rewrite the score and the
+    underlying rows remain available when the filter is off.
+    """
+    ratios = valid_call_ratios(area)
+    return not ratios or sum(ratios) / len(ratios) < threshold
+
+
+def apply_choice_filters(
+    areas: list[AreaInput],
+    *,
+    exclude_zone_one: bool = False,
+    exclude_low_history: bool = False,
+) -> list[AreaInput]:
+    """Apply explicit UI filters while preserving the original area list."""
+    return [
+        area
+        for area in areas
+        if not (exclude_zone_one and is_primary_zone_one(area))
+        and not (exclude_low_history and has_low_call_history(area))
+    ]
+
+
 def _history_points(area: AreaInput) -> list[dict]:
     points = []
     for year in (2566, 2567, 2568):

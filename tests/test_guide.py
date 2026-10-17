@@ -6,7 +6,7 @@ from src.connectors.gazette import (
     match_area_name,
     norm_area,
 )
-from src.guide_rules import evidence_review, explain_area, guide_watch
+from src.guide_rules import apply_choice_filters, evidence_review, explain_area, guide_watch
 from src.scoring import AreaInput, YearStat, score_areas
 
 
@@ -276,3 +276,14 @@ def test_consideration_keeps_only_supported_districts_and_does_not_pad_to_five()
     assert any("ผู้สมัคร" in line for line in decision["change_if"])
     scored = score_areas(areas, 2569)
     assert all(component.key != "account" for item in scored for component in item.components)
+
+
+def test_optional_choice_filters_do_not_mutate_the_source_area_list():
+    zone_one = _area("สพป.นครราชสีมา เขต 1", "z1", openings=2, listed=10, appointed=2)
+    strong = _area("สพป.นครราชสีมา เขต 2", "z2", openings=2, listed=10, appointed=8)
+    areas = [zone_one, strong]
+
+    filtered = apply_choice_filters(areas, exclude_zone_one=True, exclude_low_history=True)
+
+    assert [item.area_name for item in filtered] == ["สพป.นครราชสีมา เขต 2"]
+    assert [item.area_name for item in areas] == ["สพป.นครราชสีมา เขต 1", "สพป.นครราชสีมา เขต 2"]

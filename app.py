@@ -24,7 +24,7 @@ from src.labels import (
     STATUS_FAIL,
     SUBJECT,
 )
-from src.guide_rules import evidence_review
+from src.guide_rules import apply_choice_filters, evidence_review
 from src.parsing import competition_text, format_thai_stamp
 from src.scenarios import applicant_increase, factor_outlook, future_calls, reach_rank, staffing_change, target_disadvantage
 from src.scoring import evidence_notice, formula_text, normalize_weights, score_areas
@@ -50,8 +50,23 @@ def main() -> None:
     _boot()
     snapshot = load_dashboard(DB)
     _header(snapshot)
-    focus_year, org_level, query, favorites_only, data_filter, coverage_status, weights = _filters(snapshot)
+    (
+        focus_year,
+        org_level,
+        query,
+        favorites_only,
+        data_filter,
+        coverage_status,
+        weights,
+        exclude_zone_one,
+        exclude_low_history,
+    ) = _filters(snapshot)
     view = load_dashboard(DB, focus_year, org_level, query, favorites_only, data_filter, coverage_status)
+    view["areas"] = apply_choice_filters(
+        view["areas"],
+        exclude_zone_one=exclude_zone_one,
+        exclude_low_history=exclude_low_history,
+    )
     view["weights"] = weights
     scores = score_areas(view["areas"], view["focus_year"], weights) if view["focus_year"] else []
     _decision(view, scores)
@@ -128,6 +143,16 @@ def _filters(snapshot: dict):
         ["ทั้งหมด", COVERAGE_OPEN, COVERAGE_ANNOUNCED, COVERAGE_WAITING, COVERAGE_NONE, COVERAGE_UNVERIFIED, COVERAGE_SOURCE_CLOSED],
     )
     favorites_only = st.sidebar.checkbox("แสดงเฉพาะรายการโปรด")
+    st.sidebar.subheader("ตัวกรองตามคู่มือ")
+    exclude_zone_one = st.sidebar.checkbox(
+        "ไม่เน้น สพป. เขต 1",
+        help="เป็นตัวกรองแสดงผลเท่านั้น ไม่ได้แปลว่าเขต 1 ทุกแห่งไม่ดี และอาจทำให้พลาดเขตที่มีหลักฐานดีบางแห่ง",
+    )
+    exclude_low_history = st.sidebar.checkbox(
+        "ตัดเขตที่ประวัติเรียกน้อย",
+        help="ตัดเขตที่ไม่มีประวัติเรียกที่ตรวจสอบได้ หรือมีสัดส่วนเรียกบรรจุเฉลี่ยต่ำกว่า 50% ของผู้ขึ้นบัญชีในปีที่มีข้อมูล",
+    )
+    st.sidebar.caption("ตัวกรองนี้ไม่ลบข้อมูลดิบ และปิดได้เพื่อกลับไปดูทุกเขต")
     names = {area.area_name: area.area_key for area in snapshot["all_areas"]}
     current = [name for name, key in names.items() if key in snapshot["favorites"]]
     picked = st.sidebar.multiselect("เขตที่สนใจ", list(names), default=current)
@@ -160,7 +185,17 @@ def _filters(snapshot: dict):
         with connect(DB) as conn:
             set_pref(conn, "score_weights", json.dumps(normalize_weights(edited)))
         st.sidebar.success("บันทึกน้ำหนักแล้ว")
-    return int(focus_year), org_level, query, favorites_only, data_filter, coverage_status, normalize_weights(edited)
+    return (
+        int(focus_year),
+        org_level,
+        query,
+        favorites_only,
+        data_filter,
+        coverage_status,
+        normalize_weights(edited),
+        exclude_zone_one,
+        exclude_low_history,
+    )
 
 
 def _metrics(view: dict, scores: list) -> None:
