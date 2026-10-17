@@ -43,7 +43,15 @@ def main() -> None:
         """
         <style>
         html, body, [class*="css"] { font-family: "Leelawadee UI", "Sarabun", Tahoma, sans-serif; }
-        .block-container { padding-top: 1.2rem; max-width: 1280px; }
+        .block-container { padding-top: 1rem; max-width: 1280px; }
+        .radar-hero { background: linear-gradient(135deg, #123b5d 0%, #1d6b83 100%); color: white; border-radius: 18px; padding: 1.35rem 1.5rem; margin-bottom: 1rem; }
+        .radar-hero h1 { margin: 0 0 .25rem 0; font-size: clamp(1.55rem, 3vw, 2.25rem); }
+        .radar-hero p { margin: 0; opacity: .88; font-size: 1rem; }
+        .radar-note { background: #f1f6f8; border-left: 4px solid #2b7a8b; padding: .7rem .9rem; border-radius: 8px; margin: .5rem 0 1rem; }
+        .area-card-title { font-size: 1.12rem; font-weight: 700; color: #123b5d; margin-bottom: .25rem; }
+        .area-card-score { font-size: 1.55rem; font-weight: 800; color: #16746b; }
+        .area-card-label { font-size: .82rem; color: #64748b; }
+        @media (max-width: 640px) { .block-container { padding: .65rem .75rem 1.5rem; } .radar-hero { padding: 1rem; border-radius: 14px; } }
         </style>
         """,
         unsafe_allow_html=True,
@@ -108,15 +116,17 @@ def _boot() -> None:
 
 
 def _header(snapshot: dict) -> None:
-    st.title("Teacher Exam Radar")
-    st.caption("วิเคราะห์เลือกเขตสอบครูผู้ช่วย เอกภาษาอังกฤษ สังกัด สพฐ. เฉพาะการคัดเลือกทั่วไป")
+    st.markdown(
+        '<div class="radar-hero"><h1>Teacher Exam Radar</h1><p>ช่วยเทียบเขตสอบครูผู้ช่วย สพฐ. เอกภาษาอังกฤษ จากหลักฐานที่ตรวจสอบได้</p></div>',
+        unsafe_allow_html=True,
+    )
     left, right = st.columns([3, 2])
     with left:
-        st.markdown(f"**สถานะข้อมูล:** {snapshot['status']}")
+        st.markdown(f"**สถานะข้อมูล:** `{snapshot['status']}`")
         success = format_thai_stamp(snapshot["last_success"]) if snapshot["last_success"] else "ยังไม่เคยดึงสำเร็จ"
-        st.markdown(f"**ดึงข้อมูลสำเร็จล่าสุด:** {success}")
+        st.caption(f"ดึงข้อมูลสำเร็จล่าสุด: {success}")
         source_time = format_thai_stamp(snapshot["reference_at"]) if snapshot["reference_at"] else MISSING
-        st.markdown(f"**วันที่บนหน้าต้นทาง:** {source_time}")
+        st.caption(f"วันที่บนหน้าต้นทาง: {source_time}")
         if snapshot["status"] == STATUS_FAIL and snapshot["last_success"]:
             st.warning("การดึงครั้งล่าสุดไม่สำเร็จ ตารางด้านล่างเป็นข้อมูลครั้งล่าสุดที่ดึงสำเร็จ ไม่ใช่เวลาปัจจุบัน")
         if snapshot["last_message"]:
@@ -281,6 +291,8 @@ def _filters(snapshot: dict):
 
 
 def _metrics(view: dict, scores: list) -> None:
+    st.subheader("ภาพรวมที่เห็นตอนนี้")
+    st.caption("ตัวเลขด้านล่างเปลี่ยนตามตัวกรองด้านซ้าย และใช้เฉพาะข้อมูลที่มีอยู่จริง")
     year = view["focus_year"]
     opened = []
     for area in view["areas"]:
@@ -328,6 +340,8 @@ def _year_note(view: dict) -> None:
 
 
 def _compare_tab(view: dict, scores: list) -> None:
+    st.subheader("เขตที่อยู่ในชุดเปรียบเทียบ")
+    st.caption("เริ่มจากมุมมองการ์ดเพื่ออ่านสรุปสั้น ๆ หากต้องการตรวจตัวเลขทุกช่องให้เลือกตารางละเอียด")
     _summary_panel(view)
     by_key = {item.area_key: item for item in scores}
     rows = []
@@ -378,16 +392,26 @@ def _compare_tab(view: dict, scores: list) -> None:
             }
         )
     frame = pd.DataFrame(rows)
-    st.dataframe(
-        frame,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "แหล่งตัวเลข": st.column_config.LinkColumn("แหล่งตัวเลข"),
-            "หน้ารายเขต": st.column_config.LinkColumn("หน้ารายเขต"),
-            "เว็บเขต": st.column_config.LinkColumn("เว็บเขต"),
-        },
+    mode = st.radio(
+        "รูปแบบการแสดงผล",
+        ["การ์ดอ่านง่าย", "ตารางละเอียด"],
+        horizontal=True,
+        key="compare_view_mode",
+        help="การ์ดเหมาะกับมือถือและการอ่านเร็ว ตารางเหมาะกับการตรวจหลักฐานหลายคอลัมน์",
     )
+    if mode == "การ์ดอ่านง่าย":
+        _area_card_view(rows)
+    else:
+        st.dataframe(
+            frame,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "แหล่งตัวเลข": st.column_config.LinkColumn("แหล่งตัวเลข"),
+                "หน้ารายเขต": st.column_config.LinkColumn("หน้ารายเขต"),
+                "เว็บเขต": st.column_config.LinkColumn("เว็บเขต"),
+            },
+        )
     _coverage_table(view)
     st.download_button(
         "ดาวน์โหลดตารางนี้ (CSV)",
@@ -397,26 +421,53 @@ def _compare_tab(view: dict, scores: list) -> None:
     )
 
 
+def _area_card_view(rows: list[dict]) -> None:
+    if not rows:
+        st.info("ยังไม่มีเขตในชุดเปรียบเทียบ")
+        return
+    for row in rows:
+        with st.container(border=True):
+            title_left, title_right = st.columns([3, 1])
+            with title_left:
+                st.markdown(f'<div class="area-card-title">{row["เขตพื้นที่"]}</div>', unsafe_allow_html=True)
+                st.caption(f'{row["สังกัด"]} · สถานะประกาศ: {row["สถานะประกาศ"]}')
+            with title_right:
+                st.markdown(f'<div class="area-card-score">{row["คะแนน"]}</div><div class="area-card-label">คะแนน</div>', unsafe_allow_html=True)
+            stats = st.columns(4)
+            stats[0].metric("เปิดรับ", row["เปิดรับ"])
+            stats[1].metric("ผู้สมัคร", row["ผู้สมัคร"])
+            stats[2].metric("แข่งขัน", row["อัตราการแข่งขัน"])
+            stats[3].metric("เรียกบรรจุ", row["เรียกบรรจุ"])
+            st.caption(f'ความมั่นใจ: {row["ความมั่นใจ"]} · ความครบข้อมูล: {row["ความครบ"]}')
+            with st.expander("ดูเหตุผลและข้อมูลที่เกี่ยวข้อง"):
+                st.write(row["เหตุผล"])
+                st.write(f'ขึ้นบัญชี: {row["ขึ้นบัญชี"]} · คงเหลือ: {row["คงเหลือ"]}')
+                st.write(f'ครูจริง: {row["ครูจริง"]} · เกณฑ์: {row["ครูตามเกณฑ์"]} · ผลต่าง: {row["ผลต่างอัตรากำลัง"]}')
+                links = [url for url in (row["แหล่งตัวเลข"], row["หน้ารายเขต"], row["เว็บเขต"]) if url]
+                if links:
+                    st.markdown("แหล่งข้อมูล: " + " · ".join(f"[{index}]({url})" for index, url in enumerate(links, start=1)))
+
+
 def _summary_panel(view: dict) -> None:
     if not view["summaries"]:
         return
-    st.subheader("ภาพรวมวิชาเอกทั้งประเทศ")
-    st.caption("ตัวเลขนี้รวมทุกเขตที่เปิดสอบวิชาเอกในปีนั้น จากหน้าเดียวกัน คนละชุดกับตารางเขตด้านล่างซึ่งเป็นเขตที่อยู่ในหน้ารายปีปัจจุบัน")
-    rows = []
-    for item in view["summaries"]:
-        rows.append(
-            {
-                "ปี": item["exam_year"],
-                "เขตที่เปิด": _num(item["areas_opened"]),
-                "ตำแหน่ง": _num(item["openings"]),
-                "ผู้สมัคร": _num(item["applicants"]) if item["applicants_known"] else MISSING,
-                "ขึ้นบัญชี": _num(item["listed_count"]),
-                "เรียกบรรจุ": _num(item["appointed_count"]),
-                "คงเหลือ": _num(item["remaining_count"]),
-                "หมายเหตุ": item["note"] or "",
-            }
-        )
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    with st.expander("ดูภาพรวมวิชาเอกทั้งประเทศ", expanded=False):
+        st.caption("ตัวเลขนี้รวมทุกเขตที่เปิดสอบวิชาเอกในปีนั้น จากหน้าเดียวกัน คนละชุดกับตารางเขตด้านล่างซึ่งเป็นเขตที่อยู่ในหน้ารายปีปัจจุบัน")
+        rows = []
+        for item in view["summaries"]:
+            rows.append(
+                {
+                    "ปี": item["exam_year"],
+                    "เขตที่เปิด": _num(item["areas_opened"]),
+                    "ตำแหน่ง": _num(item["openings"]),
+                    "ผู้สมัคร": _num(item["applicants"]) if item["applicants_known"] else MISSING,
+                    "ขึ้นบัญชี": _num(item["listed_count"]),
+                    "เรียกบรรจุ": _num(item["appointed_count"]),
+                    "คงเหลือ": _num(item["remaining_count"]),
+                    "หมายเหตุ": item["note"] or "",
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _decision(view: dict, scores: list) -> None:
@@ -427,7 +478,8 @@ def _decision(view: dict, scores: list) -> None:
     pick = ranked[0]
     area = next(item for item in view["areas"] if item.area_key == pick.area_key)
     notes = choice_notes(area, pick, view["focus_year"])
-    st.subheader(f"เขตที่เทียบได้สูงสุดจากข้อมูลปัจจุบัน: {pick.area_name}")
+    st.subheader("คำแนะนำเบื้องต้นจากข้อมูลปัจจุบัน")
+    st.markdown(f"### {pick.area_name}")
     st.caption(f"อันดับ {pick.rank} · คะแนนความน่าสนใจ {pick.total:.1f} · ความมั่นใจของข้อมูล {pick.confidence} อันดับนี้ไม่ใช่โอกาสสอบติดหรือโอกาสถูกเรียกบรรจุ")
     notice = evidence_notice(scores)
     if notice:
